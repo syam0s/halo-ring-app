@@ -547,7 +547,11 @@ fun MoreScreen(app: App, onForget: () -> Unit) {
         item { Text("Ring", style = androidx.compose.material3.MaterialTheme.typography.headlineLarge) }
         item {
             Panel(Modifier.fillMaxWidth()) {
-                PanelTitle(app.prefs.name ?: "Ring", Teal, trailing = st.conn.name)
+                PanelTitle(app.prefs.name ?: "Ring", Teal, trailing = when (st.conn) {
+                    RingManager.Conn.Connected -> "Connected"
+                    RingManager.Conn.Connecting -> "Connecting…"
+                    RingManager.Conn.Disconnected -> if (st.lastSync > 0) "Standby" else "Not synced yet"
+                })
                 Spacer(Modifier.height(10.dp))
                 StatRow(
                     "Battery" to (st.battery?.let { "$it%" } ?: "--"),
