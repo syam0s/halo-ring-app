@@ -52,6 +52,7 @@ import com.syam.haloring.App
 import com.syam.haloring.SyncWorker
 import com.syam.haloring.ble.Cmd
 import com.syam.haloring.ble.RingManager
+import com.syam.haloring.data.BatteryEstimator
 import com.syam.haloring.data.Db
 import com.syam.haloring.data.Point
 import com.syam.haloring.data.SleepNight
@@ -212,7 +213,16 @@ private fun Header(app: App, st: RingManager.Status) {
             }
         }
         Spacer(Modifier.height(10.dp))
-        val battery = st.battery?.let { "Ring $it%" + if (st.charging) " (charging)" else "" } ?: "Ring"
+        val ver by app.db.version.collectAsState()
+        val rs by app.ring.settings.collectAsState()
+        val est = remember(ver, rs, st.battery, st.charging) {
+            BatteryEstimator.estimate(app.prefs, app.db, rs ?: RingManager.RingSettings())
+        }
+        val battery = when {
+            est.level == null -> "Ring"
+            est.charging -> "Ring ${est.level}% (charging)"
+            else -> "Ring ${est.level}% · ~${BatteryEstimator.formatHours(est.hoursLeft ?: 0.0)} left"
+        }
         Text(
             if (st.busy) "$battery · ${st.step}…" else "$battery · synced ${ago(st.lastSync)}",
             color = Muted, fontSize = 13.sp,
@@ -530,6 +540,11 @@ fun MoreScreen(app: App, onForget: () -> Unit) {
     val ctx = LocalContext.current
     val st by app.ring.status.collectAsState()
     val ringSettings by app.ring.settings.collectAsState()
+    val ver by app.db.version.collectAsState()
+    val current = ringSettings ?: RingManager.RingSettings()
+    val est = remember(ver, ringSettings, st.battery, st.charging) {
+        BatteryEstimator.estimate(app.prefs, app.db, current)
+    }
     var autoSync by remember { mutableStateOf(app.prefs.autoSync) }
     var goal by remember { mutableStateOf(app.prefs.stepGoal) }
     var confirmOff by remember { mutableStateOf(false) }
@@ -554,7 +569,7 @@ fun MoreScreen(app: App, onForget: () -> Unit) {
                 })
                 Spacer(Modifier.height(10.dp))
                 StatRow(
-                    "Battery" to (st.battery?.let { "$it%" } ?: "--"),
+                    "Battery" to (est.level?.let { "$it%" } ?: "--"),
                     "Last sync" to ago(st.lastSync),
                 )
                 Spacer(Modifier.height(10.dp))
@@ -573,6 +588,8 @@ fun MoreScreen(app: App, onForget: () -> Unit) {
                 }
             }
         }
+
+        item { BatteryPanel(app, est, current) }
 
         item {
             Panel(Modifier.fillMaxWidth()) {
@@ -668,6 +685,74 @@ fun MoreScreen(app: App, onForget: () -> Unit) {
             confirmButton = { TextButton(onClick = { confirmForget = false; onForget() }) { Text("Forget") } },
             dismissButton = { TextButton(onClick = { confirmForget = false }) { Text("Cancel") } },
         )
+    }
+}
+
+@Composable
+private fun BatteryPanel(app: App, est: BatteryEstimator.Estimate, s: RingManager.RingSettings) {
+    Panel(Modifier.fillMaxWidth()) {
+        PanelTitle("Battery", Lime, trailing = if (est.learned) "learned from your ring" else "rough estimate")
+        Spacer(Modifier.height(10.dp))
+        val level = est.level
+        if (level == null) {
+            Text("Sync once to read the battery.", color = Muted)
+            return@Panel
+        }
+        Row(verticalAlignment = Alignment.Bottom) {
+            BigValue("$level", "%", color = if (level <= 15) Coral else TextMain)
+            Spacer(Modifier.width(14.dp))
+            Text(
+                when {
+                    est.charging -> "Charging"
+                    est.hoursLeft != null -> "about ${BatteryEstimator.formatHours(est.hoursLeft)} left"
+                    else -> ""
+                },
+                color = if (level <= 15 && !est.charging) Coral else Lime,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.padding(bottom = 6.dp),
+            )
+        }
+        Spacer(Modifier.height(8.dp))
+        Box(Modifier.fillMaxWidth().height(8.dp).clip(RoundedCornerShape(4.dp)).background(Grid)) {
+            Box(
+                Modifier.fillMaxWidth(level / 100f).height(8.dp).clip(RoundedCornerShape(4.dp))
+                    .background(if (level <= 15) Coral else Lime)
+            )
+        }
+        Spacer(Modifier.height(8.dp))
+        if (!est.charging && est.hoursLeft != null) {
+            val emptyAt = java.time.LocalDateTime.now().plusMinutes((est.hoursLeft * 60).toLong())
+            Text("Runs out around " + emptyAt.format(DateTimeFormatter.ofPattern("EEE d MMM, h a")), color = Muted, fontSize = 13.sp)
+        }
+        Text("A full charge lasts about ${BatteryEstimator.formatDays(est.fullChargeDays)} with your current settings.", color = Muted, fontSize = 13.sp)
+
+        if (s.hrEnabled) {
+            Spacer(Modifier.height(14.dp))
+            Text("Full charge by heart-rate interval", color = TextMain, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+            Spacer(Modifier.height(6.dp))
+            val factor = est.fullChargeDays * BatteryEstimator.modelDrainPerDay(s) / 100.0
+            Row(Modifier.fillMaxWidth()) {
+                listOf(5, 10, 15, 30, 60).forEach { m ->
+                    val days = 100.0 / (BatteryEstimator.modelDrainPerDay(s.copy(hrInterval = m)) / factor)
+                    val selected = s.hrInterval == m
+                    Column(
+                        Modifier.weight(1f).padding(horizontal = 2.dp).clip(RoundedCornerShape(10.dp))
+                            .background(if (selected) Lime.copy(alpha = 0.18f) else CardHi).padding(vertical = 8.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        Text("${m}m", color = if (selected) Lime else Muted, fontSize = 12.sp)
+                        Text("%.1fd".format(days), color = TextMain, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                    }
+                }
+            }
+        }
+        if (!est.learned) {
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "Based on typical use for now. After a day or two of syncs it learns your ring's real drain and gets more accurate.",
+                color = Muted, fontSize = 12.sp,
+            )
+        }
     }
 }
 

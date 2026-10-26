@@ -76,8 +76,14 @@ class RingManager(private val ctx: Context, private val db: Db, private val pref
     data class Live(val type: Int, val value: Int?, val running: Boolean, val note: String)
     data class Found(val name: String, val address: String, val rssi: Int, val likely: Boolean)
 
-    val status = MutableStateFlow(Status(lastSync = prefs.lastSync))
-    val settings = MutableStateFlow<RingSettings?>(null)
+    val status = MutableStateFlow(
+        Status(
+            lastSync = prefs.lastSync,
+            battery = prefs.batteryLevel.takeIf { it >= 0 },
+            charging = prefs.batteryCharging,
+        )
+    )
+    val settings = MutableStateFlow(decodeSettings(prefs.ringSettings))
     val live = MutableStateFlow<Live?>(null)
     val scanResults = MutableStateFlow<List<Found>>(emptyList())
     val scanning = MutableStateFlow(false)
@@ -143,8 +149,8 @@ class RingManager(private val ctx: Context, private val db: Db, private val pref
     private fun onNotify(uuid: UUID, v: ByteArray) {
         if (uuid == Uuids.NOTIFY_V1) {
             when (v.u(0)) {
-                Cmd.BATTERY -> status.update { it.copy(battery = v.u(1), charging = v.u(2) == 1) }
-                Cmd.NOTIFY -> if (v.u(1) == 0x0c) status.update { it.copy(battery = v.u(2), charging = v.u(3) == 1) }
+                Cmd.BATTERY -> setBattery(v.u(1), v.u(2) == 1)
+                Cmd.NOTIFY -> if (v.u(1) == 0x0c) setBattery(v.u(2), v.u(3) == 1)
             }
             v1.tryEmit(v)
         } else if (uuid == Uuids.NOTIFY_V2) {
@@ -163,6 +169,43 @@ class RingManager(private val ctx: Context, private val db: Db, private val pref
     }
 
     private fun setConn(c: Conn) = status.update { it.copy(conn = c) }
+
+    private fun setBattery(level: Int, charging: Boolean) {
+        if (level !in 0..100) return
+        prefs.batteryLevel = level
+        prefs.batteryCharging = charging
+        prefs.batteryTs = System.currentTimeMillis()
+        status.update { it.copy(battery = level, charging = charging) }
+    }
+
+    /** Log battery + settings so the time-left estimate can learn how fast this ring drains. */
+    private fun recordBattery() {
+        val s = settings.value ?: return
+        val level = prefs.batteryLevel
+        if (level < 0) return
+        db.insertBattery(
+            com.syam.haloring.data.BatteryReading(
+                System.currentTimeMillis(), level, prefs.batteryCharging,
+                s.hrEnabled, s.hrInterval, s.spo2, s.stress, s.hrv,
+            )
+        )
+        db.bump()
+    }
+
+    private fun encodeSettings(s: RingSettings) =
+        listOf(if (s.hrEnabled) 1 else 0, s.hrInterval, if (s.spo2) 1 else 0, if (s.stress) 1 else 0, if (s.hrv) 1 else 0)
+            .joinToString(",")
+
+    private fun decodeSettings(v: String?): RingSettings? {
+        val p = v?.split(",")?.mapNotNull { it.toIntOrNull() } ?: return null
+        if (p.size != 5) return null
+        return RingSettings(p[0] == 1, p[1], p[2] == 1, p[3] == 1, p[4] == 1)
+    }
+
+    private fun saveSettings(s: RingSettings) {
+        settings.value = s
+        prefs.ringSettings = encodeSettings(s)
+    }
 
     // ---------- Low-level Bluetooth operations ----------
 
@@ -326,6 +369,7 @@ class RingManager(private val ctx: Context, private val db: Db, private val pref
             send(Packets.phoneName())
             request(Cmd.BATTERY, Packets.battery(), 2500) { true }
             readSettings()
+            recordBattery()
 
             val zone = ZoneId.systemDefault()
             val today = LocalDate.now()
@@ -380,7 +424,7 @@ class RingManager(private val ctx: Context, private val db: Db, private val pref
     }
 
     private suspend fun readSettings() {
-        var s = RingSettings()
+        var s = settings.value ?: RingSettings()
         request(Cmd.HR_PREF, Packets.prefRead(Cmd.HR_PREF), 2000) {
             if (it.u(1) == 2) false else { s = s.copy(hrEnabled = it.u(2) == 1, hrInterval = it.u(3)); true }
         }
@@ -393,20 +437,22 @@ class RingManager(private val ctx: Context, private val db: Db, private val pref
         request(Cmd.HRV_PREF, Packets.prefRead(Cmd.HRV_PREF), 2000) {
             if (it.u(1) == 2) false else { s = s.copy(hrv = it.u(2) == 1); true }
         }
-        settings.value = s
+        saveSettings(s)
     }
 
     suspend fun loadSettings() { withRing("Reading ring settings") { readSettings() } }
 
     suspend fun applySettings(s: RingSettings) {
-        settings.value = s
+        saveSettings(s)
         withRing("Saving settings") {
             send(Packets.hrPrefWrite(s.hrEnabled, s.hrInterval))
             send(Packets.togglePrefWrite(Cmd.SPO2_PREF, s.spo2))
             send(Packets.togglePrefWrite(Cmd.STRESS_PREF, s.stress))
             send(Packets.togglePrefWrite(Cmd.HRV_PREF, s.hrv))
             delay(300)
+            request(Cmd.BATTERY, Packets.battery(), 2500) { true }
             readSettings()
+            recordBattery()
         }
     }
 

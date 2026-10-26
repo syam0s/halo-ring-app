@@ -14,6 +14,10 @@ import java.time.format.DateTimeFormatter
 data class Point(val ts: Long, val value: Int)
 data class Act(val ts: Long, val steps: Int, val calories: Int, val distance: Int)
 data class Spo2(val ts: Long, val value: Int, val min: Int, val max: Int)
+data class BatteryReading(
+    val ts: Long, val level: Int, val charging: Boolean,
+    val hrOn: Boolean, val hrInterval: Int, val spo2: Boolean, val stress: Boolean, val hrv: Boolean,
+)
 data class Stage(val ts: Long, val stage: Int, val minutes: Int)
 data class SleepNight(val start: Long, val end: Long, val stages: List<Stage>) {
     val asleepMinutes: Int get() = stages.filter { it.stage != STAGE_AWAKE }.sumOf { it.minutes }
@@ -32,7 +36,7 @@ fun dayEnd(d: LocalDate): Long = dayStart(d.plusDays(1))
 fun Long.toLocalDate(): LocalDate = Instant.ofEpochMilli(this).atZone(ZoneId.systemDefault()).toLocalDate()
 
 /** All readings live here, on the phone only. */
-class Db(ctx: Context) : SQLiteOpenHelper(ctx, "ring.db", null, 1) {
+class Db(ctx: Context) : SQLiteOpenHelper(ctx, "ring.db", null, 2) {
 
     /** Bumped after every change so screens refresh. */
     val version = MutableStateFlow(0)
@@ -46,9 +50,46 @@ class Db(ctx: Context) : SQLiteOpenHelper(ctx, "ring.db", null, 1) {
         db.execSQL("CREATE TABLE activity (ts INTEGER PRIMARY KEY, steps INTEGER, calories INTEGER, distance INTEGER)")
         db.execSQL("CREATE TABLE sleep_session (start INTEGER PRIMARY KEY, finish INTEGER)")
         db.execSQL("CREATE TABLE sleep_stage (ts INTEGER PRIMARY KEY, stage INTEGER, minutes INTEGER)")
+        createBattery(db)
     }
 
-    override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {}
+    private fun createBattery(db: SQLiteDatabase) {
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS battery (ts INTEGER PRIMARY KEY, level INTEGER, charging INTEGER, " +
+                "hr_on INTEGER, hr_interval INTEGER, spo2 INTEGER, stress INTEGER, hrv INTEGER)"
+        )
+    }
+
+    override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
+        if (oldVersion < 2) createBattery(db)
+    }
+
+    fun insertBattery(r: BatteryReading) {
+        val cv = ContentValues()
+        cv.put("ts", r.ts)
+        cv.put("level", r.level)
+        cv.put("charging", if (r.charging) 1 else 0)
+        cv.put("hr_on", if (r.hrOn) 1 else 0)
+        cv.put("hr_interval", r.hrInterval)
+        cv.put("spo2", if (r.spo2) 1 else 0)
+        cv.put("stress", if (r.stress) 1 else 0)
+        cv.put("hrv", if (r.hrv) 1 else 0)
+        writableDatabase.insertWithOnConflict("battery", null, cv, SQLiteDatabase.CONFLICT_REPLACE)
+    }
+
+    fun batteryReadings(from: Long): List<BatteryReading> {
+        val out = mutableListOf<BatteryReading>()
+        readableDatabase.rawQuery(
+            "SELECT ts, level, charging, hr_on, hr_interval, spo2, stress, hrv FROM battery WHERE ts >= ? ORDER BY ts",
+            arrayOf(from.toString())
+        ).use { c ->
+            while (c.moveToNext()) out += BatteryReading(
+                c.getLong(0), c.getInt(1), c.getInt(2) == 1, c.getInt(3) == 1, c.getInt(4),
+                c.getInt(5) == 1, c.getInt(6) == 1, c.getInt(7) == 1,
+            )
+        }
+        return out
+    }
 
     private inline fun tx(block: SQLiteDatabase.() -> Unit) {
         val db = writableDatabase
@@ -239,4 +280,20 @@ class Prefs(ctx: Context) {
     var stepGoal: Int
         get() = sp.getInt("stepGoal", 8000)
         set(v) = sp.edit().putInt("stepGoal", v).apply()
+
+    // Last known battery state, so the estimate works between syncs.
+    var batteryLevel: Int
+        get() = sp.getInt("batt", -1)
+        set(v) = sp.edit().putInt("batt", v).apply()
+    var batteryTs: Long
+        get() = sp.getLong("battTs", 0L)
+        set(v) = sp.edit().putLong("battTs", v).apply()
+    var batteryCharging: Boolean
+        get() = sp.getBoolean("battChg", false)
+        set(v) = sp.edit().putBoolean("battChg", v).apply()
+
+    /** Ring measurement settings as "hrOn,interval,spo2,stress,hrv" (empty = not read yet). */
+    var ringSettings: String?
+        get() = sp.getString("ringSettings", null)
+        set(v) = sp.edit().putString("ringSettings", v).apply()
 }
