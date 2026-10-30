@@ -3,6 +3,7 @@ package com.syam.haloring.ui
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -91,12 +92,21 @@ private fun stressLabel(v: Int) = when {
     else -> "High"
 }
 
+internal fun metricColor(m: Metric) = when (m) {
+    Metric.HEART -> Coral
+    Metric.SPO2 -> Sky
+    Metric.HRV -> Lime
+    Metric.STRESS -> Amber
+    Metric.STEPS -> Teal
+    Metric.SLEEP -> Violet
+}
+
 private fun List<Point>.avg(): Int? = if (isEmpty()) null else map { it.value }.average().roundToInt()
 
 // ===================================================================== TODAY
 
 @Composable
-fun TodayScreen(app: App, open: (Int) -> Unit) {
+fun TodayScreen(app: App, open: (Metric) -> Unit) {
     val ver by app.db.version.collectAsState()
     val st by app.ring.status.collectAsState()
     val today = LocalDate.now()
@@ -110,12 +120,31 @@ fun TodayScreen(app: App, open: (Int) -> Unit) {
     val sleep = remember(ver) { app.db.sleepFor(today) }
     val steps = acts.sumOf { it.steps }
     val goal = app.prefs.stepGoal
+    val updates = remember(ver) { todayUpdates(app) }
 
     LazyColumn(contentPadding = listPadding, verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item { Header(app, st) }
 
+        if (updates.isNotEmpty()) item {
+            Panel(Modifier.fillMaxWidth()) {
+                PanelTitle("Today's updates", Teal)
+                Spacer(Modifier.height(6.dp))
+                updates.forEach { (metric, text) ->
+                    Row(
+                        Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).clickable { open(metric) }.padding(vertical = 7.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Box(Modifier.size(8.dp).clip(RoundedCornerShape(4.dp)).background(metricColor(metric)))
+                        Spacer(Modifier.width(10.dp))
+                        Text(text, color = TextMain, fontSize = 14.sp, modifier = Modifier.weight(1f))
+                        Text("›", color = Muted, fontSize = 18.sp)
+                    }
+                }
+            }
+        }
+
         item {
-            Panel(Modifier.fillMaxWidth(), onClick = { open(3) }) {
+            Panel(Modifier.fillMaxWidth(), onClick = { open(Metric.STEPS) }) {
                 PanelTitle("Steps", Teal, trailing = "Goal ${fmtNumber(goal)}")
                 Spacer(Modifier.height(10.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -138,7 +167,7 @@ fun TodayScreen(app: App, open: (Int) -> Unit) {
 
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Panel(Modifier.weight(1f), onClick = { open(2) }) {
+                Panel(Modifier.weight(1f), onClick = { open(Metric.HEART) }) {
                     PanelTitle("Heart", Coral)
                     Spacer(Modifier.height(8.dp))
                     BigValue(hr.lastOrNull()?.value?.toString() ?: "--", "bpm", size = 28)
@@ -149,7 +178,7 @@ fun TodayScreen(app: App, open: (Int) -> Unit) {
                     Spacer(Modifier.height(6.dp))
                     Sparkline(hr.takeLast(48), Coral)
                 }
-                Panel(Modifier.weight(1f), onClick = { open(1) }) {
+                Panel(Modifier.weight(1f), onClick = { open(Metric.SLEEP) }) {
                     PanelTitle("Sleep", Violet)
                     Spacer(Modifier.height(8.dp))
                     BigValue(sleep?.let { fmtMinutes(it.asleepMinutes) } ?: "--", size = 28)
@@ -162,13 +191,13 @@ fun TodayScreen(app: App, open: (Int) -> Unit) {
 
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Panel(Modifier.weight(1f), onClick = { open(2) }) {
+                Panel(Modifier.weight(1f), onClick = { open(Metric.SPO2) }) {
                     PanelTitle("Blood oxygen", Sky)
                     Spacer(Modifier.height(8.dp))
                     BigValue(spo2.takeIf { it.isNotEmpty() }?.map { it.value }?.average()?.roundToInt()?.toString() ?: "--", "%", size = 28)
                     Text(if (spo2.isEmpty()) "No readings yet" else "Lowest ${spo2.minOf { it.min }}%", color = Muted, fontSize = 12.sp)
                 }
-                Panel(Modifier.weight(1f), onClick = { open(2) }) {
+                Panel(Modifier.weight(1f), onClick = { open(Metric.STRESS) }) {
                     PanelTitle("Stress", Amber)
                     Spacer(Modifier.height(8.dp))
                     val s = stress.avg()
@@ -179,7 +208,7 @@ fun TodayScreen(app: App, open: (Int) -> Unit) {
         }
 
         item {
-            Panel(Modifier.fillMaxWidth(), onClick = { open(2) }) {
+            Panel(Modifier.fillMaxWidth(), onClick = { open(Metric.HRV) }) {
                 PanelTitle("HRV", Lime, trailing = "heart rate variability")
                 Spacer(Modifier.height(8.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -262,7 +291,7 @@ private fun SleepMixBar(n: SleepNight) {
 // ===================================================================== SLEEP
 
 @Composable
-fun SleepScreen(app: App) {
+fun SleepScreen(app: App, openDetail: (Metric, LocalDate) -> Unit) {
     val ver by app.db.version.collectAsState()
     var date by rememberSaveable { mutableStateOf(LocalDate.now()) }
     val night = remember(ver, date) { app.db.sleepFor(date) }
@@ -287,8 +316,8 @@ fun SleepScreen(app: App) {
             }
         } else {
             item {
-                Panel(Modifier.fillMaxWidth()) {
-                    PanelTitle("Time asleep", Violet)
+                Panel(Modifier.fillMaxWidth(), onClick = { openDetail(Metric.SLEEP, date) }) {
+                    PanelTitle("Time asleep", Violet, trailing = "Details ›")
                     Spacer(Modifier.height(8.dp))
                     BigValue(fmtMinutes(night.asleepMinutes))
                     Text("In bed ${clock(night.start)} – ${clock(night.end)} (${fmtMinutes(((night.end - night.start) / 60000).toInt())})", color = Muted)
@@ -297,8 +326,8 @@ fun SleepScreen(app: App) {
                 }
             }
             item {
-                Panel(Modifier.fillMaxWidth()) {
-                    PanelTitle("Stages", Violet)
+                Panel(Modifier.fillMaxWidth(), onClick = { openDetail(Metric.SLEEP, date) }) {
+                    PanelTitle("Stages", Violet, trailing = "Stage times ›")
                     Spacer(Modifier.height(12.dp))
                     val total = night.stages.sumOf { it.minutes }.coerceAtLeast(1)
                     listOf(
@@ -348,7 +377,7 @@ private fun StageRow(name: String, hint: String, minutes: Int, frac: Float, colo
 // ===================================================================== HEALTH
 
 @Composable
-fun HealthScreen(app: App) {
+fun HealthScreen(app: App, openDetail: (Metric, LocalDate) -> Unit) {
     val ver by app.db.version.collectAsState()
     val live by app.ring.live.collectAsState()
     val st by app.ring.status.collectAsState()
@@ -367,8 +396,8 @@ fun HealthScreen(app: App) {
         live?.let { l -> item { LivePanel(app, l) } }
 
         item {
-            Panel(Modifier.fillMaxWidth()) {
-                PanelTitle("Heart rate", Coral, trailing = "bpm")
+            Panel(Modifier.fillMaxWidth(), onClick = { openDetail(Metric.HEART, date) }) {
+                PanelTitle("Heart rate", Coral, trailing = "Details ›")
                 Spacer(Modifier.height(10.dp))
                 StatRow(
                     "Lowest" to (hr.minOfOrNull { it.value }?.toString() ?: "--"),
@@ -384,8 +413,8 @@ fun HealthScreen(app: App) {
             }
         }
         item {
-            Panel(Modifier.fillMaxWidth()) {
-                PanelTitle("Blood oxygen (SpO2)", Sky, trailing = "%")
+            Panel(Modifier.fillMaxWidth(), onClick = { openDetail(Metric.SPO2, date) }) {
+                PanelTitle("Blood oxygen (SpO2)", Sky, trailing = "Details ›")
                 Spacer(Modifier.height(10.dp))
                 StatRow(
                     "Lowest" to (spo2.minOfOrNull { it.min }?.toString() ?: "--"),
@@ -401,8 +430,8 @@ fun HealthScreen(app: App) {
             }
         }
         item {
-            Panel(Modifier.fillMaxWidth()) {
-                PanelTitle("HRV", Lime, trailing = "ms")
+            Panel(Modifier.fillMaxWidth(), onClick = { openDetail(Metric.HRV, date) }) {
+                PanelTitle("HRV", Lime, trailing = "Details ›")
                 Spacer(Modifier.height(10.dp))
                 StatRow(
                     "Lowest" to (hrv.minOfOrNull { it.value }?.toString() ?: "--"),
@@ -416,8 +445,8 @@ fun HealthScreen(app: App) {
             }
         }
         item {
-            Panel(Modifier.fillMaxWidth()) {
-                PanelTitle("Stress", Amber, trailing = stress.avg()?.let { stressLabel(it) })
+            Panel(Modifier.fillMaxWidth(), onClick = { openDetail(Metric.STRESS, date) }) {
+                PanelTitle("Stress", Amber, trailing = "Details ›")
                 Spacer(Modifier.height(10.dp))
                 StatRow(
                     "Lowest" to (stress.minOfOrNull { it.value }?.toString() ?: "--"),
@@ -470,7 +499,7 @@ private fun LivePanel(app: App, l: RingManager.Live) {
 // ===================================================================== ACTIVITY
 
 @Composable
-fun ActivityScreen(app: App) {
+fun ActivityScreen(app: App, openDetail: (Metric, LocalDate) -> Unit) {
     val ver by app.db.version.collectAsState()
     var date by rememberSaveable { mutableStateOf(LocalDate.now()) }
     var range by rememberSaveable { mutableStateOf(7) }
@@ -489,10 +518,11 @@ fun ActivityScreen(app: App) {
         item { Text("Activity", style = androidx.compose.material3.MaterialTheme.typography.headlineLarge) }
         item { DayPicker(date, { date = it }) }
         item {
-            Panel(Modifier.fillMaxWidth()) {
-                PanelTitle("Steps", Teal, trailing = if (steps >= goal) "Goal reached" else "${fmtNumber(goal - steps)} to go")
+            Panel(Modifier.fillMaxWidth(), onClick = { openDetail(Metric.STEPS, date) }) {
+                PanelTitle("Steps", Teal, trailing = "Details ›")
                 Spacer(Modifier.height(8.dp))
                 BigValue(fmtNumber(steps), "steps")
+                Text(if (steps >= goal) "Goal reached" else "${fmtNumber(goal - steps)} to go", color = Muted, fontSize = 13.sp)
                 Spacer(Modifier.height(10.dp))
                 StatRow(
                     "Distance" to "%.2f km".format(acts.sumOf { it.distance } / 1000.0),

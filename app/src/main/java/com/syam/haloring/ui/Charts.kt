@@ -3,7 +3,14 @@ package com.syam.haloring.ui
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.ui.input.pointer.pointerInput
+import com.syam.haloring.data.Stage
+import kotlin.math.abs
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
@@ -46,9 +53,33 @@ fun DayLineChart(
     gapMinutes: Int = 45,
     fixedMin: Float? = null,
     fixedMax: Float? = null,
+    selectedTs: Long? = null,
+    onSelect: ((Point) -> Unit)? = null,
 ) {
     val tm = rememberTextMeasurer()
-    Canvas(modifier) {
+    val pick by rememberUpdatedState(onSelect)
+    val touch = if (onSelect == null) Modifier else Modifier
+        .pointerInput(points) {
+            fun choose(x: Float) {
+                if (points.isEmpty()) return
+                val left = 30.dp.toPx()
+                val w = size.width - left
+                val ts = dayStartMs + (((x - left) / w).coerceIn(0f, 1f) * 1440f * 60000f).toLong()
+                pick?.invoke(points.minBy { abs(it.ts - ts) })
+            }
+            detectTapGestures { choose(it.x) }
+        }
+        .pointerInput(points) {
+            fun choose(x: Float) {
+                if (points.isEmpty()) return
+                val left = 30.dp.toPx()
+                val w = size.width - left
+                val ts = dayStartMs + (((x - left) / w).coerceIn(0f, 1f) * 1440f * 60000f).toLong()
+                pick?.invoke(points.minBy { abs(it.ts - ts) })
+            }
+            detectHorizontalDragGestures { change, _ -> choose(change.position.x) }
+        }
+    Canvas(modifier.then(touch)) {
         val left = 30.dp.toPx()
         val bottom = 18.dp.toPx()
         val w = size.width - left
@@ -101,6 +132,13 @@ fun DayLineChart(
             drawPath(fill, fillBrush)
             drawPath(line, color, style = Stroke(2.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round))
         }
+        val sel = selectedTs?.let { t -> points.firstOrNull { it.ts == t } }
+        if (sel != null) {
+            val c = Offset(xOf(sel.ts), yOf(sel.value.toFloat()))
+            drawLine(TextMain.copy(alpha = 0.5f), Offset(c.x, 0f), Offset(c.x, h), 1.5f)
+            drawCircle(Bg, 7.dp.toPx(), c)
+            drawCircle(color, 5.dp.toPx(), c)
+        }
     }
 }
 
@@ -114,9 +152,24 @@ fun BarChart(
     labelEvery: Int = 1,
     highlight: Int = -1,
     target: Float? = null,
+    onSelect: ((Int) -> Unit)? = null,
 ) {
     val tm = rememberTextMeasurer()
-    Canvas(modifier) {
+    val pick by rememberUpdatedState(onSelect)
+    val touch = if (onSelect == null) Modifier else Modifier
+        .pointerInput(values.size) {
+            detectTapGestures { o ->
+                val n = values.size.coerceAtLeast(1)
+                pick?.invoke((o.x / (size.width / n.toFloat())).toInt().coerceIn(0, n - 1))
+            }
+        }
+        .pointerInput(values.size) {
+            detectHorizontalDragGestures { change, _ ->
+                val n = values.size.coerceAtLeast(1)
+                pick?.invoke((change.position.x / (size.width / n.toFloat())).toInt().coerceIn(0, n - 1))
+            }
+        }
+    Canvas(modifier.then(touch)) {
         val bottom = 18.dp.toPx()
         val h = size.height - bottom
         val n = values.size.coerceAtLeast(1)
@@ -154,12 +207,34 @@ fun stageColor(stage: Int) = when (stage) {
 
 /** The classic sleep-stage staircase. */
 @Composable
-fun Hypnogram(night: SleepNight, modifier: Modifier = Modifier.fillMaxWidth().height(180.dp)) {
+fun Hypnogram(
+    night: SleepNight,
+    modifier: Modifier = Modifier.fillMaxWidth().height(180.dp),
+    selected: Stage? = null,
+    onSelect: ((Stage) -> Unit)? = null,
+) {
     val tm = rememberTextMeasurer()
+    val pick by rememberUpdatedState(onSelect)
+    fun stageAt(x: Float, width: Float, left: Float): Stage? {
+        if (night.stages.isEmpty()) return null
+        val span = (night.end - night.start).coerceAtLeast(1L)
+        val ts = night.start + (((x - left) / (width - left)).coerceIn(0f, 1f) * span).toLong()
+        return night.stages.firstOrNull { ts >= it.ts && ts < it.ts + it.minutes * 60_000L }
+            ?: night.stages.minBy { abs(it.ts - ts) }
+    }
+    val touch = if (onSelect == null) Modifier else Modifier
+        .pointerInput(night) {
+            detectTapGestures { o -> stageAt(o.x, size.width.toFloat(), 44.dp.toPx())?.let { pick?.invoke(it) } }
+        }
+        .pointerInput(night) {
+            detectHorizontalDragGestures { c, _ ->
+                stageAt(c.position.x, size.width.toFloat(), 44.dp.toPx())?.let { pick?.invoke(it) }
+            }
+        }
     val fmt = DateTimeFormatter.ofPattern("HH:mm")
     val zone = ZoneId.systemDefault()
     fun t(ms: Long) = Instant.ofEpochMilli(ms).atZone(zone).format(fmt)
-    Canvas(modifier) {
+    Canvas(modifier.then(touch)) {
         val left = 44.dp.toPx()
         val bottom = 18.dp.toPx()
         val w = size.width - left
@@ -175,12 +250,23 @@ fun Hypnogram(night: SleepNight, modifier: Modifier = Modifier.fillMaxWidth().he
             val x0 = left + w * ((s.ts - night.start) / span).coerceIn(0f, 1f)
             val x1 = left + w * ((s.ts + s.minutes * 60_000L - night.start) / span).coerceIn(0f, 1f)
             val r = stageRow(s.stage)
+            val isSel = selected != null && selected.ts == s.ts
+            val c = if (selected == null || isSel) stageColor(s.stage) else stageColor(s.stage).copy(alpha = 0.4f)
             drawRoundRect(
-                stageColor(s.stage),
+                c,
                 Offset(x0, rowH * r + rowH * 0.18f),
                 Size((x1 - x0).coerceAtLeast(2f), rowH * 0.64f),
                 CornerRadius(4.dp.toPx()),
             )
+            if (isSel) {
+                drawRoundRect(
+                    TextMain,
+                    Offset(x0, rowH * r + rowH * 0.18f),
+                    Size((x1 - x0).coerceAtLeast(2f), rowH * 0.64f),
+                    CornerRadius(4.dp.toPx()),
+                    style = Stroke(2.dp.toPx()),
+                )
+            }
         }
         label(tm, t(night.start), left, h + 3.dp.toPx())
         val endText = t(night.end)

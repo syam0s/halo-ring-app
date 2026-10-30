@@ -59,6 +59,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.syam.haloring.ble.RingManager
 import com.syam.haloring.ui.ActivityScreen
+import com.syam.haloring.ui.DetailScreen
+import com.syam.haloring.ui.Metric
+import java.time.LocalDate
 import com.syam.haloring.ui.Bg
 import com.syam.haloring.ui.CardColor
 import com.syam.haloring.ui.HealthScreen
@@ -186,6 +189,9 @@ private data class Tab(val label: String, val icon: androidx.compose.ui.graphics
 @Composable
 private fun MainScreen(app: App, onForget: () -> Unit) {
     var tab by rememberSaveable { mutableIntStateOf(0) }
+    var detail by rememberSaveable { mutableStateOf<Metric?>(null) }
+    var detailDate by rememberSaveable { mutableStateOf(LocalDate.now()) }
+    val openDetail: (Metric, LocalDate) -> Unit = { m, d -> detailDate = d; detail = m }
     val tabs = listOf(
         Tab("Today", Icons.Rounded.Home),
         Tab("Sleep", Icons.Rounded.Bedtime),
@@ -203,7 +209,7 @@ private fun MainScreen(app: App, onForget: () -> Unit) {
                 tabs.forEachIndexed { i, t ->
                     NavigationBarItem(
                         selected = tab == i,
-                        onClick = { tab = i },
+                        onClick = { tab = i; detail = null },
                         icon = { Icon(t.icon, t.label) },
                         label = { Text(t.label) },
                         colors = NavigationBarItemDefaults.colors(
@@ -219,11 +225,14 @@ private fun MainScreen(app: App, onForget: () -> Unit) {
         },
     ) { padding ->
         Box(Modifier.padding(padding)) {
-            when (tab) {
-                0 -> TodayScreen(app) { tab = it }
-                1 -> SleepScreen(app)
-                2 -> HealthScreen(app)
-                3 -> ActivityScreen(app)
+            val d = detail
+            if (d != null) {
+                DetailScreen(app, d, detailDate) { detail = null }
+            } else when (tab) {
+                0 -> TodayScreen(app) { m -> openDetail(m, LocalDate.now()) }
+                1 -> SleepScreen(app, openDetail)
+                2 -> HealthScreen(app, openDetail)
+                3 -> ActivityScreen(app, openDetail)
                 else -> MoreScreen(app, onForget)
             }
         }
