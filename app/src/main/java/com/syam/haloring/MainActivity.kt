@@ -58,17 +58,26 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.syam.haloring.ble.RingManager
-import com.syam.haloring.ui.ActivityScreen
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.foundation.border
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import com.syam.haloring.ui.Border
+import com.syam.haloring.ui.CardHi
+import com.syam.haloring.ui.RingScreen
+import com.syam.haloring.ui.TrendsScreen
+import com.syam.haloring.ui.VitalsScreen
 import com.syam.haloring.ui.DetailScreen
 import com.syam.haloring.ui.Metric
 import java.time.LocalDate
 import com.syam.haloring.ui.Bg
 import com.syam.haloring.ui.CardColor
-import com.syam.haloring.ui.HealthScreen
-import com.syam.haloring.ui.MoreScreen
 import com.syam.haloring.ui.Muted
 import com.syam.haloring.ui.RingTheme
-import com.syam.haloring.ui.SleepScreen
 import com.syam.haloring.ui.Teal
 import com.syam.haloring.ui.TextMain
 import com.syam.haloring.ui.TodayScreen
@@ -194,46 +203,60 @@ private fun MainScreen(app: App, onForget: () -> Unit) {
     val openDetail: (Metric, LocalDate) -> Unit = { m, d -> detailDate = d; detail = m }
     val tabs = listOf(
         Tab("Today", Icons.Rounded.Home),
-        Tab("Sleep", Icons.Rounded.Bedtime),
-        Tab("Health", Icons.Rounded.MonitorHeart),
-        Tab("Activity", Icons.Rounded.BarChart),
+        Tab("Vitals", Icons.Rounded.MonitorHeart),
+        Tab("Trends", Icons.Rounded.BarChart),
         Tab("Ring", Icons.Rounded.Tune),
     )
     LaunchedEffect(Unit) {
         if (System.currentTimeMillis() - app.prefs.lastSync > 5 * 60 * 1000L) app.scope.launch { app.ring.sync() }
     }
-    Scaffold(
-        containerColor = Bg,
-        bottomBar = {
-            NavigationBar(containerColor = CardColor) {
-                tabs.forEachIndexed { i, t ->
-                    NavigationBarItem(
-                        selected = tab == i,
-                        onClick = { tab = i; detail = null },
-                        icon = { Icon(t.icon, t.label) },
-                        label = { Text(t.label) },
-                        colors = NavigationBarItemDefaults.colors(
-                            selectedIconColor = Bg,
-                            indicatorColor = Teal,
-                            selectedTextColor = Teal,
-                            unselectedIconColor = Muted,
-                            unselectedTextColor = Muted,
-                        ),
-                    )
-                }
-            }
-        },
-    ) { padding ->
-        Box(Modifier.padding(padding)) {
+    Box(Modifier.fillMaxSize().background(Bg)) {
+        Box(Modifier.fillMaxSize().statusBarsPadding()) {
             val d = detail
             if (d != null) {
                 DetailScreen(app, d, detailDate) { detail = null }
             } else when (tab) {
-                0 -> TodayScreen(app) { m -> openDetail(m, LocalDate.now()) }
-                1 -> SleepScreen(app, openDetail)
-                2 -> HealthScreen(app, openDetail)
-                3 -> ActivityScreen(app, openDetail)
-                else -> MoreScreen(app, onForget)
+                0 -> TodayScreen(app, { m -> openDetail(m, LocalDate.now()) }, { tab = it })
+                1 -> VitalsScreen(app, openDetail)
+                2 -> TrendsScreen(app, openDetail)
+                else -> RingScreen(app, onForget)
+            }
+        }
+        // bottom fade so content slides under the floating bar
+        Box(
+            Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(130.dp)
+                .background(Brush.verticalGradient(listOf(Color.Transparent, Bg.copy(alpha = 0.92f), Bg)))
+        )
+        FloatingBar(
+            tabs, tab,
+            Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(horizontal = 20.dp, vertical = 14.dp),
+        ) { tab = it; detail = null }
+    }
+}
+
+@Composable
+private fun FloatingBar(tabs: List<Tab>, selected: Int, modifier: Modifier, onSelect: (Int) -> Unit) {
+    val shape = RoundedCornerShape(50)
+    Row(
+        modifier.fillMaxWidth().height(66.dp).clip(shape)
+            .background(Brush.verticalGradient(listOf(CardHi, CardColor)))
+            .border(1.dp, Border, shape).padding(6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        tabs.forEachIndexed { i, t ->
+            val sel = i == selected
+            val bg by animateColorAsState(if (sel) Teal.copy(alpha = 0.16f) else Color.Transparent, label = "tab")
+            Row(
+                Modifier.weight(if (sel) 1.5f else 1f).fillMaxHeight().clip(shape).background(bg)
+                    .clickable(remember { MutableInteractionSource() }, null) { onSelect(i) },
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(t.icon, t.label, tint = if (sel) Teal else Muted, modifier = Modifier.size(22.dp))
+                if (sel) {
+                    Spacer(Modifier.width(6.dp))
+                    Text(t.label, color = Teal, fontWeight = FontWeight.ExtraBold, fontSize = 13.sp)
+                }
             }
         }
     }

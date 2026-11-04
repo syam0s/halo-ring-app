@@ -54,7 +54,7 @@ import kotlin.math.abs
 import kotlin.math.roundToInt
 
 enum class Metric(val title: String) {
-    HEART("Heart rate"), SPO2("Blood oxygen"), HRV("HRV"), STRESS("Stress"), STEPS("Steps"), SLEEP("Sleep")
+    HEART("Heart rate"), SPO2("Blood oxygen"), HRV("HRV"), STRESS("Stress"), STEPS("Activity"), SLEEP("Sleep"), READINESS("Readiness")
 }
 
 private val hmFmt = DateTimeFormatter.ofPattern("HH:mm")
@@ -408,7 +408,7 @@ private fun LazyListScope.listHeader(title: String, note: String) {
     }
 }
 
-private val detailPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 32.dp)
+private val detailPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 120.dp)
 
 // ============================================================ detail screen
 
@@ -416,10 +416,14 @@ private val detailPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp
 fun DetailScreen(app: App, metric: Metric, startDate: LocalDate, onBack: () -> Unit) {
     BackHandler(onBack = onBack)
     var date by rememberSaveable(metric) { mutableStateOf(startDate) }
-    when (metric) {
-        Metric.SLEEP -> SleepDetail(app, date, { date = it }, onBack)
-        Metric.STEPS -> StepsDetail(app, date, { date = it }, onBack)
-        else -> SeriesDetail(app, metric, date, { date = it }, onBack)
+    Box {
+        GlowBackdrop(metricColor(metric))
+        when (metric) {
+            Metric.SLEEP -> SleepDetail(app, date, { date = it }, onBack)
+            Metric.STEPS -> StepsDetail(app, date, { date = it }, onBack)
+            Metric.READINESS -> ReadinessDetail(app, date, { date = it }, onBack)
+            else -> SeriesDetail(app, metric, date, { date = it }, onBack)
+        }
     }
 }
 
@@ -551,11 +555,14 @@ private fun StepsDetail(app: App, date: LocalDate, onDate: (LocalDate) -> Unit, 
         arr.toList()
     }
     val updates = remember(ver, date) { stepsInsights(app, date, acts, hourly) }
+    val score = remember(ver, date) { Scores.activity(app, date) }
     var selHour by remember(date) { mutableStateOf(-1) }
 
     LazyColumn(contentPadding = detailPadding, verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        item { DetailHeader("Steps", Teal, onBack) }
+        item { DetailHeader("Activity", Orange, onBack) }
         item { DayPicker(date, onDate) }
+        if (score != null) item { ScoreHeader("Activity score", score, ActivityGrad, Scores.activityHeadline(score.value)) }
+        item { SectionLabel("Steps") }
         item {
             Panel(Modifier.fillMaxWidth()) {
                 StatRow(
@@ -565,7 +572,7 @@ private fun StepsDetail(app: App, date: LocalDate, onDate: (LocalDate) -> Unit, 
                 )
                 Spacer(Modifier.height(14.dp))
                 BarChart(
-                    hourly, (0..23).map { if (it % 6 == 0) "%02d".format(it) else "" }, Teal,
+                    hourly, (0..23).map { if (it % 6 == 0) "%02d".format(it) else "" }, Orange,
                     modifier = Modifier.fillMaxWidth().height(180.dp),
                     highlight = selHour, onSelect = { selHour = it },
                 )
@@ -609,6 +616,7 @@ private fun SleepDetail(app: App, date: LocalDate, onDate: (LocalDate) -> Unit, 
     val night = remember(ver, date) { app.db.sleepFor(date) }
     val updates = remember(ver, date, night) { night?.let { sleepInsights(app, date, it) } ?: emptyList() }
     var sel by remember(date) { mutableStateOf<Stage?>(null) }
+    val score = remember(ver, date) { Scores.sleep(app, date) }
 
     LazyColumn(contentPadding = detailPadding, verticalArrangement = Arrangement.spacedBy(10.dp)) {
         item { DetailHeader("Sleep", Violet, onBack) }
@@ -617,6 +625,7 @@ private fun SleepDetail(app: App, date: LocalDate, onDate: (LocalDate) -> Unit, 
                 if (d == LocalDate.now()) "Last night" else "Woke up " + d.format(DateTimeFormatter.ofPattern("EEE d MMM"))
             }
         }
+        if (score != null) item { ScoreHeader("Sleep score", score, SleepGrad, Scores.sleepHeadline(score.value)) }
         if (night == null) {
             item {
                 Panel(Modifier.fillMaxWidth()) {
@@ -670,6 +679,99 @@ private fun SleepDetail(app: App, date: LocalDate, onDate: (LocalDate) -> Unit, 
                     sel?.ts == s.ts, stageColor(s.stage),
                 ) { sel = s }
             }
+        }
+    }
+}
+
+
+// ============================================================ scores
+
+@Composable
+internal fun ScoreHeader(title: String, score: Score, colors: List<Color>, headline: String) {
+    val st = statusOf(score.value)
+    Panel(Modifier.fillMaxWidth()) {
+        Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+            ScoreDial(score.value, colors, 168.dp, 13.dp, 52)
+            Spacer(Modifier.height(4.dp))
+            Text(title.uppercase(), color = Muted, fontSize = 11.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = 1.4.sp)
+            Spacer(Modifier.height(6.dp))
+            Chip(st.label, st.color)
+            Spacer(Modifier.height(10.dp))
+            Text(headline, color = TextMain, fontSize = 16.sp, fontWeight = FontWeight.SemiBold,
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center, lineHeight = 22.sp)
+        }
+        Spacer(Modifier.height(18.dp))
+        Text("CONTRIBUTORS", color = Faint, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.2.sp)
+        Spacer(Modifier.height(6.dp))
+        score.contributors.forEach { c ->
+            Column(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(c.name, color = TextMain, fontWeight = FontWeight.Bold, fontSize = 15.sp, modifier = Modifier.weight(1f))
+                    Text(c.value, color = Muted, fontSize = 13.sp)
+                    Spacer(Modifier.width(10.dp))
+                    Text(statusOf(c.score).label, color = statusOf(c.score).color, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                }
+                Spacer(Modifier.height(6.dp))
+                ContributorBar(c.score)
+                Spacer(Modifier.height(4.dp))
+                Text(c.note, color = Faint, fontSize = 12.sp)
+            }
+        }
+    }
+}
+
+@Composable
+private fun ReadinessDetail(app: App, date: LocalDate, onDate: (LocalDate) -> Unit, onBack: () -> Unit) {
+    val ver by app.db.version.collectAsState()
+    val score = remember(ver, date) { Scores.readiness(app, date) }
+    val week = remember(ver, date) {
+        (13 downTo 0).map { date.minusDays(it.toLong()) }.map { it to (Scores.readiness(app, it)?.value ?: 0) }
+    }
+    var selDay by remember(date) { mutableStateOf(-1) }
+
+    LazyColumn(contentPadding = detailPadding, verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        item { DetailHeader("Readiness", Teal, onBack) }
+        item { DayPicker(date, onDate) }
+        if (score == null) {
+            item {
+                Panel(Modifier.fillMaxWidth()) {
+                    Text("Not enough data for a readiness score yet.", color = TextMain, fontWeight = FontWeight.SemiBold)
+                    Text(Scores.readinessHeadline(null), color = Muted)
+                }
+            }
+        } else {
+            item { ScoreHeader("Readiness", score, ReadinessGrad, Scores.readinessHeadline(score.value)) }
+        }
+        item {
+            Panel(Modifier.fillMaxWidth()) {
+                PanelTitle("Last 14 days", Teal)
+                Spacer(Modifier.height(12.dp))
+                BarChart(
+                    week.map { it.second.toFloat() },
+                    week.map { it.first.format(DateTimeFormatter.ofPattern("d")) },
+                    Teal, labelEvery = 2, highlight = if (selDay >= 0) selDay else week.size - 1,
+                    onSelect = { selDay = it },
+                )
+                Spacer(Modifier.height(10.dp))
+                val d = week.getOrNull(selDay)
+                Readout(
+                    if (d == null) "Tap a bar to see that day's score"
+                    else d.first.format(DateTimeFormatter.ofPattern("EEE d MMM")) + ": " +
+                        (if (d.second > 0) "${d.second} · ${statusOf(d.second).label}" else "no score"),
+                    Teal,
+                )
+            }
+        }
+        item {
+            ExplainPanel(
+                "Readiness is Halo's estimate of how recovered you are and how much you can take on today. It blends your resting " +
+                    "heart rate and HRV (compared with your own usual), how well and how long you slept recently, yesterday's activity " +
+                    "and your recent stress. It needs a few days of wearing the ring to learn your baseline, and it's guidance, " +
+                    "not a medical measurement.",
+                listOf("85–100" to "Optimal: a good day to push", "70–84" to "Good: a normal day", "60–69" to "Fair: take it easier",
+                    "Below 60" to "Pay attention: rest and recover"),
+                Teal,
+            )
         }
     }
 }
