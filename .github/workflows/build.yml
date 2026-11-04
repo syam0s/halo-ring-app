@@ -27,13 +27,13 @@ jobs:
         run: gradle :app:assembleRelease --no-daemon --stacktrace
 
       - name: Rename APK
-        run: cp app/build/outputs/apk/release/app-release.apk "Halo-v1.0.${{ github.run_number }}.apk"
+        run: cp app/build/outputs/apk/release/app-release.apk "Halo-v2.0.${{ github.run_number }}.apk"
 
       - name: Publish as a download
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v1.0.${{ github.run_number }}
-          name: Halo v1.0.${{ github.run_number }}
+          tag_name: v2.0.${{ github.run_number }}
+          name: Halo v2.0.${{ github.run_number }}
           body: "Tap the .apk file below to download, then open it to install."
-          files: Halo-v1.0.${{ github.run_number }}.apk
+          files: Halo-v2.0.${{ github.run_number }}.apk
           make_latest: true
