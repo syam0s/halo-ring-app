@@ -25,7 +25,10 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Alarm
 import androidx.compose.material.icons.rounded.Bedtime
+import androidx.compose.material.icons.rounded.Favorite
+import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material.icons.rounded.Bluetooth
 import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.MonitorHeart
@@ -68,7 +71,12 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import com.syam.haloring.ui.Border
 import com.syam.haloring.ui.CardHi
+import com.syam.haloring.ui.LastNightScreen
+import com.syam.haloring.ui.RecoveryScreen
+import com.syam.haloring.ui.RhythmScreen
 import com.syam.haloring.ui.RingScreen
+import com.syam.haloring.ui.TonightScreen
+import com.syam.haloring.ui.Violet
 import com.syam.haloring.ui.TrendsScreen
 import com.syam.haloring.ui.VitalsScreen
 import com.syam.haloring.ui.DetailScreen
@@ -193,7 +201,7 @@ private fun ConnectScreen(app: App, onPick: (RingManager.Found) -> Unit) {
     }
 }
 
-private data class Tab(val label: String, val icon: androidx.compose.ui.graphics.vector.ImageVector)
+private data class Tab(val label: String, val icon: androidx.compose.ui.graphics.vector.ImageVector, val color: Color = Teal)
 
 @Composable
 private fun MainScreen(app: App, onForget: () -> Unit) {
@@ -202,6 +210,10 @@ private fun MainScreen(app: App, onForget: () -> Unit) {
     var detailDate by rememberSaveable { mutableStateOf(LocalDate.now()) }
     val openDetail: (Metric, LocalDate) -> Unit = { m, d -> detailDate = d; detail = m }
     val tabs = listOf(
+        Tab("Night", Icons.Rounded.Bedtime, Violet),
+        Tab("Tonight", Icons.Rounded.Alarm, Violet),
+        Tab("Rhythm", Icons.Rounded.Schedule, Violet),
+        Tab("Recover", Icons.Rounded.Favorite, Violet),
         Tab("Today", Icons.Rounded.Home),
         Tab("Vitals", Icons.Rounded.MonitorHeart),
         Tab("Trends", Icons.Rounded.BarChart),
@@ -216,9 +228,14 @@ private fun MainScreen(app: App, onForget: () -> Unit) {
             if (d != null) {
                 DetailScreen(app, d, detailDate) { detail = null }
             } else when (tab) {
-                0 -> TodayScreen(app, { m -> openDetail(m, LocalDate.now()) }, { tab = it })
-                1 -> VitalsScreen(app, openDetail)
-                2 -> TrendsScreen(app, openDetail)
+                0 -> LastNightScreen(app, openDetail) { tab = it }
+                1 -> TonightScreen(app)
+                2 -> RhythmScreen(app)
+                3 -> RecoveryScreen(app)
+                // Today's own shortcuts use the old tab numbers (1 = Vitals, 3 = Ring), which now sit four places later.
+                4 -> TodayScreen(app, { m -> openDetail(m, LocalDate.now()) }, { tab = it + 4 })
+                5 -> VitalsScreen(app, openDetail)
+                6 -> TrendsScreen(app, openDetail)
                 else -> RingScreen(app, onForget)
             }
         }
@@ -229,7 +246,7 @@ private fun MainScreen(app: App, onForget: () -> Unit) {
         )
         FloatingBar(
             tabs, tab,
-            Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(horizontal = 20.dp, vertical = 14.dp),
+            Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(horizontal = 8.dp, vertical = 14.dp),
         ) { tab = it; detail = null }
     }
 }
@@ -240,23 +257,25 @@ private fun FloatingBar(tabs: List<Tab>, selected: Int, modifier: Modifier, onSe
     Row(
         modifier.fillMaxWidth().height(66.dp).clip(shape)
             .background(Brush.verticalGradient(listOf(CardHi, CardColor)))
-            .border(1.dp, Border, shape).padding(6.dp),
+            .border(1.dp, Border, shape).padding(horizontal = 8.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         tabs.forEachIndexed { i, t ->
             val sel = i == selected
-            val bg by animateColorAsState(if (sel) Teal.copy(alpha = 0.16f) else Color.Transparent, label = "tab")
-            Row(
-                Modifier.weight(if (sel) 1.5f else 1f).fillMaxHeight().clip(shape).background(bg)
+            val bg by animateColorAsState(if (sel) t.color.copy(alpha = 0.16f) else Color.Transparent, label = "tab")
+            // Eight tabs share the bar, so each is an icon with a small label under it.
+            Column(
+                Modifier.weight(1f).fillMaxHeight().clip(shape).background(bg)
                     .clickable(remember { MutableInteractionSource() }, null) { onSelect(i) },
-                horizontalArrangement = Arrangement.Center,
-                verticalAlignment = Alignment.CenterVertically,
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center,
             ) {
-                Icon(t.icon, t.label, tint = if (sel) Teal else Muted, modifier = Modifier.size(22.dp))
-                if (sel) {
-                    Spacer(Modifier.width(6.dp))
-                    Text(t.label, color = Teal, fontWeight = FontWeight.ExtraBold, fontSize = 13.sp)
-                }
+                Icon(t.icon, null, tint = if (sel) t.color else Muted, modifier = Modifier.size(20.dp))
+                Text(
+                    t.label, color = if (sel) t.color else Muted,
+                    fontWeight = if (sel) FontWeight.ExtraBold else FontWeight.SemiBold,
+                    fontSize = 9.sp, maxLines = 1, softWrap = false,
+                )
             }
         }
     }

@@ -9,3 +9,8 @@ Every push to `main` builds a new version automatically.
 
 Features: steps, heart rate, sleep stages, SpO2, stress, HRV, live HR/SpO2 measurement,
 ring settings, find ring, hourly background sync, CSV export. All data stays on the phone.
+
+**Version 2.1 (sleep first):** four sleep tabs open first: Last night, Tonight's plan (bedtime from
+sleep debt, with a wind-down reminder), Sleep rhythm (bedtime regularity) and Overnight recovery
+(heart rate, HRV and SpO2 through the night). The Ring tab has a touch test that shows whether
+the ring reports touch or gestures.

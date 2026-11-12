@@ -315,6 +315,39 @@ fun RingScreen(app: App, onForget: () -> Unit) {
             }
 
             item {
+                val t by app.ring.touch.collectAsState()
+                Panel(Modifier.fillMaxWidth()) {
+                    PanelTitle("Touch test", Violet)
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        "Checks whether your ring sends a signal when you touch, tap or shake it. The test listens for 30 seconds.",
+                        color = Muted, fontSize = 13.sp,
+                    )
+                    Spacer(Modifier.height(10.dp))
+                    PillButton("Start touch test", Violet, Modifier.fillMaxWidth(), enabled = !st.busy) {
+                        app.scope.launch { app.ring.touchTest() }
+                    }
+                    val tt = t
+                    if (tt != null) {
+                        Spacer(Modifier.height(10.dp))
+                        Text(
+                            when {
+                                tt.running && !tt.reached -> "Connecting to the ring…"
+                                tt.running -> "Listening, ${tt.secondsLeft}s left. Now touch the ring, double-tap it, and shake your hand."
+                                !tt.reached -> "Couldn't reach the ring. Keep it close to the phone and try again."
+                                tt.signals == 0 -> "The ring sent no signal. It does not seem to report touch in this mode."
+                                else -> "The ring sent ${tt.signals} signal${if (tt.signals == 1) "" else "s"}. Send a screenshot of this list to Claude."
+                            },
+                            color = if (!tt.running && tt.signals > 0) Teal else TextMain, fontWeight = FontWeight.SemiBold, fontSize = 14.sp,
+                        )
+                        tt.lines.forEach { line ->
+                            Text(line, color = Muted, fontSize = 12.sp, fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace)
+                        }
+                    }
+                }
+            }
+
+            item {
                 Panel(Modifier.fillMaxWidth()) {
                     PanelTitle("Ring info", Muted)
                     Spacer(Modifier.height(10.dp))

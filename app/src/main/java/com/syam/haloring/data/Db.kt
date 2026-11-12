@@ -281,6 +281,11 @@ class Prefs(ctx: Context) {
         get() = sp.getInt("stepGoal", 8000)
         set(v) = sp.edit().putInt("stepGoal", v).apply()
 
+    /** Wake-up time for Tonight's plan, as minutes after midnight. -1 = use the usual wake time. */
+    var wakeMinutes: Int
+        get() = sp.getInt("wakeMin", -1)
+        set(v) = sp.edit().putInt("wakeMin", v).apply()
+
     // Last known battery state, so the estimate works between syncs.
     var batteryLevel: Int
         get() = sp.getInt("batt", -1)

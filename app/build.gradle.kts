@@ -15,7 +15,7 @@ android {
         minSdk = 26
         targetSdk = 35
         versionCode = buildNumber
-        versionName = "2.0.$buildNumber"
+        versionName = "2.1.$buildNumber"
     }
 
     // Fixed personal signing key so every new build installs over the old one (data is kept).

@@ -88,6 +88,10 @@ class RingManager(private val ctx: Context, private val db: Db, private val pref
     val scanResults = MutableStateFlow<List<Found>>(emptyList())
     val scanning = MutableStateFlow(false)
 
+    /** Result of the touch test: every packet the ring sent while we listened. */
+    data class TouchTest(val running: Boolean, val secondsLeft: Int, val reached: Boolean, val signals: Int, val lines: List<String>)
+    val touch = MutableStateFlow<TouchTest?>(null)
+
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val session = Mutex()
     private val gattLock = Mutex()
@@ -517,6 +521,51 @@ class RingManager(private val ctx: Context, private val db: Db, private val pref
     }
 
     fun clearLive() { live.value = null }
+
+    /**
+     * Listens for 30 seconds for anything the ring sends when it is touched, tapped or shaken.
+     * It first puts the ring in the Colmi-family "camera remote" mode, the one mode where these
+     * rings are known to report a gesture, and shows every packet that arrives so we can see
+     * what this particular ring does.
+     */
+    suspend fun touchTest() {
+        touch.value = TouchTest(true, 30, false, 0, emptyList())
+        val ok = withRing("Listening for touch") {
+            touch.update { it?.copy(reached = true) }
+            coroutineScope {
+                val listener = launch(start = CoroutineStart.UNDISPATCHED) {
+                    v1.collect { p ->
+                        val c = p.u(0)
+                        val battery = c == Cmd.BATTERY || (c == Cmd.NOTIFY && p.u(1) == 0x0c)
+                        if (!battery) {
+                            val reply = c == 0x02 && (p.u(1) == 0x04 || p.u(1) == 0x06)
+                            val what = when {
+                                reply -> "reply to the app"
+                                c == 0x02 && p.u(1) == 0x02 -> "GESTURE (take photo)"
+                                c == 0x02 -> "camera mode"
+                                else -> "signal"
+                            }
+                            val hex = p.take(8).joinToString(" ") { b -> "%02x".format(b.toInt() and 0xff) }
+                            touch.update { t ->
+                                if (t == null || t.lines.size >= 40) t
+                                else t.copy(signals = t.signals + if (reply) 0 else 1, lines = t.lines + "$hex  ·  $what")
+                            }
+                        }
+                    }
+                }
+                send(Packets.make(0x02, 0x04))
+                for (s in 30 downTo 1) {
+                    touch.update { it?.copy(secondsLeft = s) }
+                    delay(1000)
+                }
+                send(Packets.make(0x02, 0x06))
+                delay(300)
+                listener.cancel()
+            }
+            true
+        }
+        touch.update { it?.copy(running = false, secondsLeft = 0, reached = ok == true) }
+    }
 
     // ---------- Scanning for the ring ----------
 
