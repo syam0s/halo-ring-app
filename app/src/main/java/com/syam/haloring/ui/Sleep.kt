@@ -8,6 +8,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -90,6 +91,49 @@ private fun fromEve(m: Int): String = clock(((m % 1440) + 1440 + 18 * 60) % 1440
 private fun clock(minuteOfDay: Int): String {
     val m = ((minuteOfDay % 1440) + 1440) % 1440
     return "%02d:%02d".format(m / 60, m % 60)
+}
+
+// ---------------------------------------------------------------- the Sleep tab
+
+private val sleepPages = listOf("Last night", "Tonight", "Rhythm", "Recovery")
+
+/**
+ * The single Sleep tab on the bottom bar. A row of page buttons sits at the top,
+ * and the chosen sleep page shows underneath it.
+ */
+@Composable
+fun SleepTab(app: App, page: Int, onPage: (Int) -> Unit, openDetail: (Metric, LocalDate) -> Unit) {
+    Column(Modifier.fillMaxWidth()) {
+        Row(
+            Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 10.dp)
+                .height(42.dp).clip(pill).background(CardColor).border(1.dp, Border, pill).padding(4.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            sleepPages.forEachIndexed { i, label ->
+                val sel = i == page
+                Box(
+                    Modifier.weight(1f).fillMaxHeight().clip(pill)
+                        .background(if (sel) Violet.copy(alpha = 0.22f) else Color.Transparent)
+                        .clickable { onPage(i) },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        label, color = if (sel) Violet else Muted, fontSize = 13.sp,
+                        fontWeight = if (sel) FontWeight.ExtraBold else FontWeight.SemiBold,
+                        maxLines = 1, softWrap = false,
+                    )
+                }
+            }
+        }
+        Box(Modifier.weight(1f)) {
+            when (page) {
+                0 -> LastNightScreen(app, openDetail) { onPage(it) }
+                1 -> TonightScreen(app)
+                2 -> RhythmScreen(app)
+                else -> RecoveryScreen(app)
+            }
+        }
+    }
 }
 
 // ---------------------------------------------------------------- shared pieces

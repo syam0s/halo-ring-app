@@ -25,10 +25,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Alarm
 import androidx.compose.material.icons.rounded.Bedtime
-import androidx.compose.material.icons.rounded.Favorite
-import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material.icons.rounded.Bluetooth
 import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.MonitorHeart
@@ -71,11 +68,8 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import com.syam.haloring.ui.Border
 import com.syam.haloring.ui.CardHi
-import com.syam.haloring.ui.LastNightScreen
-import com.syam.haloring.ui.RecoveryScreen
-import com.syam.haloring.ui.RhythmScreen
 import com.syam.haloring.ui.RingScreen
-import com.syam.haloring.ui.TonightScreen
+import com.syam.haloring.ui.SleepTab
 import com.syam.haloring.ui.Violet
 import com.syam.haloring.ui.TrendsScreen
 import com.syam.haloring.ui.VitalsScreen
@@ -206,14 +200,12 @@ private data class Tab(val label: String, val icon: androidx.compose.ui.graphics
 @Composable
 private fun MainScreen(app: App, onForget: () -> Unit) {
     var tab by rememberSaveable { mutableIntStateOf(0) }
+    var sleepPage by rememberSaveable { mutableIntStateOf(0) }
     var detail by rememberSaveable { mutableStateOf<Metric?>(null) }
     var detailDate by rememberSaveable { mutableStateOf(LocalDate.now()) }
     val openDetail: (Metric, LocalDate) -> Unit = { m, d -> detailDate = d; detail = m }
     val tabs = listOf(
-        Tab("Night", Icons.Rounded.Bedtime, Violet),
-        Tab("Tonight", Icons.Rounded.Alarm, Violet),
-        Tab("Rhythm", Icons.Rounded.Schedule, Violet),
-        Tab("Recover", Icons.Rounded.Favorite, Violet),
+        Tab("Sleep", Icons.Rounded.Bedtime, Violet),
         Tab("Today", Icons.Rounded.Home),
         Tab("Vitals", Icons.Rounded.MonitorHeart),
         Tab("Trends", Icons.Rounded.BarChart),
@@ -228,14 +220,11 @@ private fun MainScreen(app: App, onForget: () -> Unit) {
             if (d != null) {
                 DetailScreen(app, d, detailDate) { detail = null }
             } else when (tab) {
-                0 -> LastNightScreen(app, openDetail) { tab = it }
-                1 -> TonightScreen(app)
-                2 -> RhythmScreen(app)
-                3 -> RecoveryScreen(app)
-                // Today's own shortcuts use the old tab numbers (1 = Vitals, 3 = Ring), which now sit four places later.
-                4 -> TodayScreen(app, { m -> openDetail(m, LocalDate.now()) }, { tab = it + 4 })
-                5 -> VitalsScreen(app, openDetail)
-                6 -> TrendsScreen(app, openDetail)
+                0 -> SleepTab(app, sleepPage, { sleepPage = it }, openDetail)
+                // Today's own shortcuts use the old tab numbers (1 = Vitals, 3 = Ring), which now sit one place later.
+                1 -> TodayScreen(app, { m -> openDetail(m, LocalDate.now()) }, { tab = it + 1 })
+                2 -> VitalsScreen(app, openDetail)
+                3 -> TrendsScreen(app, openDetail)
                 else -> RingScreen(app, onForget)
             }
         }
@@ -263,7 +252,7 @@ private fun FloatingBar(tabs: List<Tab>, selected: Int, modifier: Modifier, onSe
         tabs.forEachIndexed { i, t ->
             val sel = i == selected
             val bg by animateColorAsState(if (sel) t.color.copy(alpha = 0.16f) else Color.Transparent, label = "tab")
-            // Eight tabs share the bar, so each is an icon with a small label under it.
+            // Five tabs share the bar: an icon with a small label under it.
             Column(
                 Modifier.weight(1f).fillMaxHeight().clip(shape).background(bg)
                     .clickable(remember { MutableInteractionSource() }, null) { onSelect(i) },
@@ -274,7 +263,7 @@ private fun FloatingBar(tabs: List<Tab>, selected: Int, modifier: Modifier, onSe
                 Text(
                     t.label, color = if (sel) t.color else Muted,
                     fontWeight = if (sel) FontWeight.ExtraBold else FontWeight.SemiBold,
-                    fontSize = 9.sp, maxLines = 1, softWrap = false,
+                    fontSize = 11.sp, maxLines = 1, softWrap = false,
                 )
             }
         }
