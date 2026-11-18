@@ -281,6 +281,11 @@ class Prefs(ctx: Context) {
         get() = sp.getInt("stepGoal", 8000)
         set(v) = sp.edit().putInt("stepGoal", v).apply()
 
+    /** What the ring said the last time we asked it for sleep, shown when no night is found. */
+    var sleepNote: String?
+        get() = sp.getString("sleepNote", null)
+        set(v) = sp.edit().putString("sleepNote", v).apply()
+
     /** Wake-up time for Tonight's plan, as minutes after midnight. -1 = use the usual wake time. */
     var wakeMinutes: Int
         get() = sp.getInt("wakeMin", -1)

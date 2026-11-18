@@ -228,6 +228,11 @@ private fun NoNight(app: App, busy: Boolean, text: String = "No sleep recorded f
         Text(text, color = TextMain, fontWeight = FontWeight.SemiBold)
         Spacer(Modifier.height(4.dp))
         Text("Wear the ring to bed and sync in the morning.", color = Muted, fontSize = 13.sp)
+        val note = app.prefs.sleepNote
+        if (note != null) {
+            Spacer(Modifier.height(8.dp))
+            Text(note, color = Violet, fontSize = 13.sp, lineHeight = 18.sp)
+        }
         Spacer(Modifier.height(12.dp))
         PillButton("Sync now", Violet, Modifier.fillMaxWidth(), filled = true, enabled = !busy) {
             app.scope.launch { app.ring.sync() }

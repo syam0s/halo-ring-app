@@ -369,6 +369,10 @@ class RingManager(private val ctx: Context, private val db: Db, private val pref
     suspend fun sync(): Boolean {
         status.update { it.copy(syncing = true, progress = 0f) }
         val ok = withRing("Connecting") {
+            // Make sure the ring is not left in camera-remote mode by the touch test.
+            // In that mode the ring can stop its own background tracking, sleep included.
+            send(Packets.make(0x02, 0x06))
+            delay(200)
             send(Packets.setTime(LocalDateTime.now()))
             send(Packets.phoneName())
             request(Cmd.BATTERY, Packets.battery(), 2500) { true }
@@ -417,7 +421,19 @@ class RingManager(private val ctx: Context, private val db: Db, private val pref
             requestBig(Cmd.BIG_SPO2)?.let { db.insertSpo2(Parsers.spo2(it, today)) }
 
             stage(5, "Sleep")
-            requestBig(Cmd.BIG_SLEEP)?.let { db.insertSleep(Parsers.sleep(it, today)) }
+            // Ask twice: the ring sometimes misses the first request.
+            val raw = requestBig(Cmd.BIG_SLEEP) ?: run { delay(500); requestBig(Cmd.BIG_SLEEP, 15000) }
+            val nights = raw?.let { Parsers.sleep(it, today) } ?: emptyList()
+            db.insertSleep(nights)
+            val clock = java.time.format.DateTimeFormatter.ofPattern("d MMM, HH:mm")
+            val at = LocalDateTime.now().format(clock)
+            prefs.sleepNote = when {
+                raw == null -> "Sync at $at: the ring did not answer the sleep request."
+                nights.isEmpty() -> "Sync at $at: the ring answered, but it has no sleep stored" +
+                    (if (settings.value?.hrEnabled == false) ". Heart-rate monitoring is off on the ring, and the ring needs it on to detect sleep." else ".")
+                else -> "Sync at $at: the ring sent ${nights.size} night(s), latest ending " +
+                    Instant.ofEpochMilli(nights.maxOf { it.end }).atZone(zone).toLocalDateTime().format(clock) + "."
+            }
 
             prefs.lastSync = System.currentTimeMillis()
             status.update { it.copy(lastSync = prefs.lastSync, progress = 1f) }
